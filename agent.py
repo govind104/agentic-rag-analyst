@@ -486,11 +486,11 @@ def create_agent_graph():
                         
                         # Select template based on column names
                         if "revenue" in val_col.lower():
-                            template = f"Analysis: Found {num_results} results. Top result: region '{group_val}' generated highest revenue of ${val_str}. This segment leads in financial performance."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' generated highest revenue of ${val_str}. This segment leads in financial performance."
                         elif "churn" in val_col.lower():
-                            template = f"Analysis: Found {num_results} results. Top result: region '{group_val}' has the highest churn rate of {val_str}%. This area requires retention focus."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' has the highest churn rate of {val_str}. This segment requires retention focus."
                         elif "fare" in val_col.lower():
-                            template = f"Analysis: Found {num_results} results. Top result: location '{group_val}' recorded the highest fare total of ${val_str}. High demand zone identified."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' recorded the highest fare total of ${val_str}. High demand segment identified."
                         elif "count" in val_col.lower() or "total" in val_col.lower():
                             template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' has {val_str} total records."
                         else:
