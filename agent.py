@@ -111,10 +111,12 @@ class ModelManager:
             model=LLM_MODEL_NAME,
             tokenizer=self.llm_tokenizer,
             device=device,
-            max_length=512,
-            max_new_tokens=256,
+            max_length=300,
+            max_new_tokens=150,
             truncation=True,
             do_sample=False,
+            repetition_penalty=1.1,
+            top_p=0.9,
             batch_size=MAX_BATCH_SIZE
         )
         
@@ -241,33 +243,43 @@ class VizTool:
         if y_col is None:
             y_col = columns[1] if len(columns) > 1 else columns[0]
         
-        # Get x values and create readable labels
+        # Convert x column to string for proper labeling
+        df[x_col] = df[x_col].astype(str)
+        
+        # Get values
         x_values = df[x_col].tolist()
         y_values = df[y_col].tolist() if y_col != x_col else df[x_col].tolist()
         
-        # Create readable x-axis labels (e.g., "Location 187" instead of just 187)
+        # Create readable x-axis labels
         if x_col.lower() in ['location', 'id', 'zone']:
-            x_labels = [f"Location {v}" for v in x_values]
+            x_labels = [f"Loc {v}" for v in x_values]
+            tick_text = x_labels
         elif x_col.lower() == 'region':
             x_labels = [str(v).title() for v in x_values]
+            tick_text = x_labels
         else:
-            x_labels = [str(v) for v in x_values]
+            x_labels = x_values
+            tick_text = [str(v) for v in x_values]
         
         # Generate Plotly JSON spec with improved labels
         plotly_spec = {
             "data": [{
                 "type": chart_type,
-                "x": x_labels,
+                "x": list(range(len(x_labels))),
                 "y": y_values,
                 "name": y_col,
                 "text": [f"{v:.2f}" if isinstance(v, float) else str(v) for v in y_values],
-                "textposition": "auto"
+                "textposition": "auto",
+                "hovertext": [f"{tick_text[i]}: {y_values[i]:.2f}" if isinstance(y_values[i], float) else f"{tick_text[i]}: {y_values[i]}" for i in range(len(y_values))]
             }],
             "layout": {
                 "title": f"{y_col.replace('_', ' ').title()} by {x_col.replace('_', ' ').title()}",
                 "xaxis": {
                     "title": x_col.replace('_', ' ').title(),
-                    "tickangle": -45 if len(x_labels) > 3 else 0
+                    "tickmode": "array",
+                    "tickvals": list(range(len(tick_text))),
+                    "ticktext": tick_text,
+                    "tickangle": -45 if len(tick_text) > 3 else 0
                 },
                 "yaxis": {"title": y_col.replace('_', ' ').title()},
                 "template": "plotly_dark",
