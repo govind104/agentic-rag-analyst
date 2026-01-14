@@ -382,52 +382,67 @@ def create_agent_graph():
         else:
             order = "DESC"  # Default to top/highest
         
-        # Determine limit
-        limit = 5  # Default
-        for word in query_lower.split():
-            if word.isdigit():
-                limit = int(word)
+        # Determine limit - Be smarter (don't pick years like 2025 as limit)
+        limit = 5
+        import re
+        # Look for small integers (likely limits) vs years
+        numbers = [int(n) for n in re.findall(r'\b\d+\b', query) if int(n) < 100]
+        if numbers and "limit" in query_lower: # Only use number as limit if 'limit' or 'top' implied?
+            # Actually, previous logic was just taking first number. Let's prioritize explicit limit
+            pass
+        
+        # Simple heuristic: if word "top" or "bottom" is near a number, use it.
+        # Otherwise default 5.
+        match = re.search(r'(?:top|bottom|limit)\s+(\d+)', query_lower)
+        if match:
+            limit = int(match.group(1))
+
+        # Build WHERE clauses
+        filters = []
+        
+        # Date filtering (simple year/month)
+        # Match 'November 2025' or '2025-11'
+        months = {
+            "january": "01", "february": "02", "march": "03", "april": "04", "may": "05", "june": "06",
+            "july": "07", "august": "08", "september": "09", "october": "10", "november": "11", "december": "12"
+        }
+        
+        year_match = re.search(r'\b(20\d{2})\b', query_lower)
+        month_match = None
+        for m_name, m_num in months.items():
+            if m_name in query_lower:
+                month_match = m_num
                 break
         
-        # Determine what to group by
-        if "passenger" in query_lower:
-            group_col = "passengers"
-        elif "tenure" in query_lower:
-            group_col = "tenure"
-        elif "region" in query_lower:
-            group_col = "region"
-        elif "location" in query_lower or "zone" in query_lower:
-            group_col = "location"
-        elif "month" in query_lower or "time" in query_lower or "date" in query_lower:
-            if table == "trips":
-                group_col = "strftime('%Y-%m', pickup_date)"
+        if year_match:
+            year = year_match.group(1)
+            if month_match:
+                filters.append(f"strftime('%Y-%m', pickup_date) = '{year}-{month_match}'")
             else:
-                group_col = default_group
-        else:
-            group_col = default_group
+                filters.append(f"strftime('%Y', pickup_date) = '{year}'")
         
-        # Determine what to aggregate
-        if "fare" in query_lower:
-            agg_col = "fare"
-        elif "revenue" in query_lower:
-            agg_col = "revenue"
-        elif "churn" in query_lower:
-            agg_col = "churn"
-            agg_func = "AVG"  # Churn rate is always average
-        elif "trip" in query_lower or "count" in query_lower:
-            agg_col = "*"
-            agg_func = "COUNT"
-        else:
-            agg_col = default_agg
+        # Passenger filtering
+        # < 2, > 4, = 1
+        pass_match = re.search(r'passengers?\s*(<|>|=)\s*(\d+)', query_lower)
+        if pass_match:
+            op = pass_match.group(1)
+            val = pass_match.group(2)
+            filters.append(f"passengers {op} {val}")
+        elif "passenger" in query_lower:
+             pass_num = re.search(r'(\d+)\s*passengers?', query_lower)
+             if pass_num:
+                 filters.append(f"passengers = {pass_num.group(1)}")
         
+        where_clause = " WHERE " + " AND ".join(filters) if filters else ""
+
         # Build the SQL query
         if "churn" in query_lower and "rate" in query_lower:
-            sql = f"SELECT {group_col}, AVG(churn) * 100 as churn_rate, COUNT(*) as total FROM {table} GROUP BY {group_col} ORDER BY churn_rate {order} LIMIT {limit}"
+            sql = f"SELECT {group_col}, AVG(churn) * 100 as churn_rate, COUNT(*) as total FROM {table}{where_clause} GROUP BY {group_col} ORDER BY churn_rate {order} LIMIT {limit}"
         elif agg_col == "*":
-            sql = f"SELECT {group_col}, COUNT(*) as count FROM {table} GROUP BY {group_col} ORDER BY count {order} LIMIT {limit}"
+            sql = f"SELECT {group_col}, COUNT(*) as count FROM {table}{where_clause} GROUP BY {group_col} ORDER BY count {order} LIMIT {limit}"
         else:
             agg_name = f"{agg_func.lower()}_{agg_col}"
-            sql = f"SELECT {group_col}, {agg_func}({agg_col}) as {agg_name} FROM {table} GROUP BY {group_col} ORDER BY {agg_name} {order} LIMIT {limit}"
+            sql = f"SELECT {group_col}, {agg_func}({agg_col}) as {agg_name} FROM {table}{where_clause} GROUP BY {group_col} ORDER BY {agg_name} {order} LIMIT {limit}"
         
         result = SQLQueryTool.run(sql)
         state["sql_query"] = sql
