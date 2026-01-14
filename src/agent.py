@@ -76,6 +76,8 @@ class AgentState(TypedDict):
     """LangGraph state for the AI Analyst Agent."""
     messages: Annotated[list[BaseMessage], add_messages]
     query: str
+    k: int
+    metric: str
     sql_query: Optional[str]
     sql_result: Optional[str]
     retrieved_docs: list[str]
@@ -84,6 +86,9 @@ class AgentState(TypedDict):
     bias_score: float
     session_id: str
     error: Optional[str]
+
+
+
 
 
 # ==============================================================================
@@ -441,7 +446,9 @@ def create_agent_graph():
     def retrieve_docs(state: AgentState) -> AgentState:
         """Retrieve relevant documents for context."""
         query = state["query"]
-        docs = RetrieveTool.run(query, k=5, metric="l2")
+        k = state.get("k", 5)
+        metric = state.get("metric", "l2")
+        docs = RetrieveTool.run(query, k=k, metric=metric)
         state["retrieved_docs"] = docs
         return state
     
@@ -646,20 +653,31 @@ async def agent_endpoint(request: AgentRequest):
     - Bias checking on outputs
     """
     REQUEST_COUNT.inc()
+    # Log request parameters
+    if mlflow.active_run():
+        mlflow.log_params({
+            "query_length": len(request.query),
+            "k": request.k,
+            "metric": request.metric,
+            "batch_size": request.batch_size
+        })
+        
     start_time = time.time()
     
     try:
         # Initialize state
-        initial_state: AgentState = {
+        initial_state = {
             "messages": [HumanMessage(content=request.query)],
             "query": request.query,
-            "sql_query": None,
+            "k": request.k,
+            "metric": request.metric,
+            "sql_query": "PENDING",
             "sql_result": None,
             "retrieved_docs": [],
             "viz_code": None,
             "narrative": None,
             "bias_score": 0.0,
-            "session_id": request.session_id or f"session_{int(time.time())}",
+            "session_id": request.session_id or "default",
             "error": None
         }
         

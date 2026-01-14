@@ -184,7 +184,7 @@ with st.sidebar:
 # ==============================================================================
 # Helper Functions
 # ==============================================================================
-def call_agent(query: str, k: int, metric: str) -> dict:
+def call_agent(query: str, k: int, metric: str, batch_size: int) -> dict:
     """Call the AI Analyst Agent API."""
     try:
         with httpx.Client(timeout=120.0) as client:
@@ -194,6 +194,7 @@ def call_agent(query: str, k: int, metric: str) -> dict:
                     "query": query,
                     "k": k,
                     "metric": metric,
+                    "batch_size": batch_size,
                     "session_id": st.session_state.session_id
                 }
             )
@@ -294,8 +295,8 @@ if page == "💬 Chat":
         
         # Get response
         with st.chat_message("assistant"):
-            with st.spinner("🔄 Analyzing..."):
-                response = call_agent(prompt, k_value, distance_metric)
+            with st.spinner("Analyzing data..."):
+                response = call_agent(prompt, k_value, distance_metric, batch_size)
             
             if "error" in response:
                 st.error(f"❌ Error: {response['error']}")
