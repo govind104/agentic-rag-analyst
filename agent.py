@@ -474,15 +474,25 @@ async def lifespan(app: FastAPI):
     app.state.agent = create_agent_graph()
     app.state.request_queue = queue.Queue()
     
-    # Setup MLflow
+    # Setup MLflow (non-blocking - disabled if MLflow not running)
+    app.state.mlflow_enabled = False
     try:
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
-        app.state.mlflow_enabled = True
-        print(f"MLflow tracking enabled: {MLFLOW_TRACKING_URI}")
+        import socket
+        # Quick connection check to MLflow
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)  # 1 second timeout
+        result = sock.connect_ex(('localhost', 5000))
+        sock.close()
+        
+        if result == 0:
+            mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+            mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+            app.state.mlflow_enabled = True
+            print(f"MLflow tracking enabled: {MLFLOW_TRACKING_URI}")
+        else:
+            print("MLflow server not running - tracking disabled")
     except Exception as e:
         print(f"MLflow tracking disabled: {e}")
-        app.state.mlflow_enabled = False
     
     print("AI Analyst Agent ready!")
     yield
