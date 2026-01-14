@@ -54,7 +54,7 @@ from data import run_sql, get_table_info, init_database
 MAX_BATCH_SIZE = 8
 MAX_WAITING_TIME = 0.1
 EMBED_MODEL_NAME = "intfloat/multilingual-e5-large-instruct"
-LLM_MODEL_NAME = "microsoft/DialoGPT-medium"  # Open fallback (ungated)
+LLM_MODEL_NAME = "facebook/opt-125m"  # Lightweight for CPU
 
 # ==============================================================================
 # Prometheus Metrics
@@ -118,11 +118,11 @@ class ModelManager:
             model=LLM_MODEL_NAME,
             tokenizer=self.llm_tokenizer,
             device=device,
-            max_length=150,
+            max_length=200,
             max_new_tokens=80,
             truncation=True,
             do_sample=False,
-            repetition_penalty=1.2,
+            repetition_penalty=2.0,
             batch_size=MAX_BATCH_SIZE
         )
         
