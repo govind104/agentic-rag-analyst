@@ -106,6 +106,16 @@ def init_database(force_recreate: bool = False) -> None:
     Args:
         force_recreate: If True, drop and recreate tables
     """
+    # Check for corrupted database file and delete if necessary
+    if DB_PATH.exists():
+        try:
+            test_conn = sqlite3.connect(str(DB_PATH))
+            test_conn.execute("SELECT 1")  # Quick validity check
+            test_conn.close()
+        except sqlite3.DatabaseError:
+            print(f"Warning: Corrupted database detected at {DB_PATH}. Deleting and recreating...")
+            DB_PATH.unlink()  # Delete the corrupted file
+    
     conn = get_connection()
     cursor = conn.cursor()
     

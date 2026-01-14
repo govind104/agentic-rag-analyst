@@ -642,6 +642,12 @@ app = FastAPI(
 )
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for startup verification."""
+    return {"status": "healthy", "message": "AI Analyst Agent is running"}
+
+
 @app.post("/agent", response_model=AgentResponse)
 async def agent_endpoint(request: AgentRequest):
     """
