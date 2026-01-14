@@ -34,6 +34,10 @@ from transformers import AutoTokenizer, AutoModel, pipeline
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
+# MLflow tracking
+import mlflow
+from mlflow.tracking import MlflowClient
+
 # Local imports
 from data import run_sql, get_table_info, init_database
 
@@ -53,6 +57,10 @@ REQUEST_LATENCY = Histogram("agent_request_latency_seconds", "Request latency", 
 QUEUE_SIZE = Gauge("agent_queue_size", "Current queue size")
 BIAS_SCORE = Gauge("agent_bias_score", "Latest bias score")
 BATCH_SIZE = Histogram("agent_batch_size", "Batch sizes processed", buckets=[1, 2, 4, 8, 16])
+
+# MLflow Configuration
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+MLFLOW_EXPERIMENT_NAME = "ai-analyst-agent"
 
 # ==============================================================================
 # Agent State Schema
@@ -466,6 +474,16 @@ async def lifespan(app: FastAPI):
     app.state.agent = create_agent_graph()
     app.state.request_queue = queue.Queue()
     
+    # Setup MLflow
+    try:
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+        app.state.mlflow_enabled = True
+        print(f"MLflow tracking enabled: {MLFLOW_TRACKING_URI}")
+    except Exception as e:
+        print(f"MLflow tracking disabled: {e}")
+        app.state.mlflow_enabled = False
+    
     print("AI Analyst Agent ready!")
     yield
     
@@ -524,6 +542,34 @@ async def agent_endpoint(request: AgentRequest):
             except:
                 sql_result = final_state["sql_result"]
         
+        # Log to MLflow
+        if getattr(app.state, 'mlflow_enabled', False):
+            try:
+                with mlflow.start_run(run_name=f"query_{final_state['session_id']}"):
+                    # Log parameters
+                    mlflow.log_param("query", request.query[:100])
+                    mlflow.log_param("k", request.k)
+                    mlflow.log_param("metric", request.metric)
+                    mlflow.log_param("session_id", final_state["session_id"])
+                    
+                    # Log metrics
+                    mlflow.log_metric("latency_ms", latency)
+                    mlflow.log_metric("bias_score", final_state.get("bias_score", 0.0))
+                    mlflow.log_metric("docs_retrieved", len(final_state.get("retrieved_docs", [])))
+                    
+                    # Log trace artifact
+                    trace_data = {
+                        "query": request.query,
+                        "sql_query": final_state.get("sql_query"),
+                        "narrative": final_state.get("narrative"),
+                        "bias_score": final_state.get("bias_score"),
+                        "latency_ms": latency,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    mlflow.log_dict(trace_data, "trace.json")
+            except Exception as mlflow_err:
+                print(f"MLflow logging error: {mlflow_err}")
+        
         return AgentResponse(
             query=request.query,
             sql_query=final_state.get("sql_query"),
@@ -538,6 +584,17 @@ async def agent_endpoint(request: AgentRequest):
     except Exception as e:
         latency = (time.time() - start_time) * 1000
         REQUEST_LATENCY.observe(latency / 1000)
+        
+        # Log error to MLflow
+        if getattr(app.state, 'mlflow_enabled', False):
+            try:
+                with mlflow.start_run(run_name=f"error_{int(time.time())}"):
+                    mlflow.log_param("query", request.query[:100])
+                    mlflow.log_param("error", str(e)[:200])
+                    mlflow.log_metric("latency_ms", latency)
+            except:
+                pass
+        
         raise HTTPException(status_code=500, detail=str(e))
 
 
