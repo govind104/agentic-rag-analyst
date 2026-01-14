@@ -456,35 +456,59 @@ def create_agent_graph():
         return state
     
     def generate_narrative(state: AgentState) -> AgentState:
-        """Generate natural language narrative using LLM."""
+        """Generate natural language narrative using deterministic template with LLM polish."""
         query = state["query"]
         
-        # Build context from SQL findings
-        df_summary = "No data found."
+        # 1. Build Deterministic Template (Fact-based)
+        template_summary = "No data found."
+        
         if state.get("sql_result"):
             try:
                 data = json.loads(state["sql_result"])
                 if data and len(data) > 0:
+                    num_results = len(data)
                     first_row = data[0]
                     keys = list(first_row.keys())
-                    df_summary = f"Found {len(data)} results. Top result: {keys[0]}={first_row[keys[0]]}"
-                    if len(keys) > 1:
-                        df_summary += f", {keys[1]}={first_row[keys[1]]}"
+                    
+                    if len(keys) >= 2:
+                        group_col = keys[0]
+                        val_col = keys[1]
+                        group_val = first_row[group_col]
+                        val_val = first_row[val_col]
+                        
+                        val_str = f"{val_val:.2f}" if isinstance(val_val, (int, float)) else str(val_val)
+                        template_summary = f"Found {num_results} results. Top result: {group_col} '{group_val}' with {val_col} {val_str}. See the visualization below for full details."
+                    else:
+                        template_summary = f"Found {num_results} results. Top result: {first_row}. See visualization."
             except:
                 pass
+
+        # 2. LLM Polish (Optional)
+        prompt = f"Rewrite this short analytical summary so it sounds like a data analyst, WITHOUT adding new facts or speculation: {template_summary}"
         
-        # Constrained prompt
-        prompt = f"Concise <100 words analysis: {df_summary}. 1 key stat + 1 insight. No repetition."
-        
+        narrative = template_summary # Default to template
+
         try:
-            # Generate narrative
-            narrative = models.generate(prompt)
-            # Cleanup output if needed
-            if prompt in narrative:
-                narrative = narrative.replace(prompt, "").strip()
+            raw_response = models.generate(prompt)
+            
+            # 3. Cleanup & Safety Check
+            candidate = raw_response
+            if prompt in candidate:
+                candidate = candidate.replace(prompt, "").strip()
+            
+            candidate_lower = candidate.lower()
+            forbidden = ["i'm not sure", "i don't know", "search engine", "concise", "unable to", "context", "language model", "sorry"]
+            
+            if any(phrase in candidate_lower for phrase in forbidden) or len(candidate) < 5:
+                # Trigger fallback
+                narrative = template_summary
+            else:
+                narrative = candidate
+
             state["narrative"] = narrative[:500]
+            
         except Exception as e:
-            state["narrative"] = f"Analysis: {df_summary}"
+            state["narrative"] = template_summary
             state["error"] = str(e)
             
         return state
