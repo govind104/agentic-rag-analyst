@@ -106,16 +106,24 @@ def init_database(force_recreate: bool = False) -> None:
     Args:
         force_recreate: If True, drop and recreate tables
     """
-    # Check for corrupted database file and delete if necessary
-    if DB_PATH.exists():
-        try:
-            test_conn = sqlite3.connect(str(DB_PATH))
-            test_conn.execute("SELECT 1")  # Quick validity check
-            test_conn.close()
-        except sqlite3.DatabaseError:
-            print(f"Warning: Corrupted database detected at {DB_PATH}. Deleting and recreating...")
-            DB_PATH.unlink()  # Delete the corrupted file
+    # Delete existing database file if corrupted or if force_recreate
+    if force_recreate and DB_PATH.exists():
+        print(f"Force recreating database at {DB_PATH}...")
+        DB_PATH.unlink()
     
+    # Try to initialize, delete and retry on corruption
+    try:
+        _do_init_database(force_recreate)
+    except sqlite3.DatabaseError as e:
+        print(f"Database error: {e}")
+        print(f"Deleting corrupted database at {DB_PATH} and retrying...")
+        if DB_PATH.exists():
+            DB_PATH.unlink()
+        _do_init_database(force_recreate=False)
+
+
+def _do_init_database(force_recreate: bool = False) -> None:
+    """Internal database initialization logic."""
     conn = get_connection()
     cursor = conn.cursor()
     
