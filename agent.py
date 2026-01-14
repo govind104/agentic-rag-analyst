@@ -285,7 +285,7 @@ class VizTool:
                     "tickmode": "array",
                     "tickvals": list(range(len(tick_text))),
                     "ticktext": tick_text,
-                    "tickangle": -45 if len(tick_text) > 3 else 0
+                    "tickangle": 0  # Horizontal labels
                 },
                 "yaxis": {"title": y_col.replace('_', ' ').title()},
                 "template": "plotly_dark",
