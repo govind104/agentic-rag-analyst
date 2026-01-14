@@ -116,7 +116,6 @@ class ModelManager:
             truncation=True,
             do_sample=False,
             repetition_penalty=1.1,
-            top_p=0.9,
             batch_size=MAX_BATCH_SIZE
         )
         
