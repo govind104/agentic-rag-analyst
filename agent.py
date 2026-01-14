@@ -118,11 +118,11 @@ class ModelManager:
             model=LLM_MODEL_NAME,
             tokenizer=self.llm_tokenizer,
             device=device,
-            max_length=300,
-            max_new_tokens=150,
+            max_length=200,
+            max_new_tokens=80,
             truncation=True,
             do_sample=False,
-            repetition_penalty=1.1,
+            repetition_penalty=2.0,
             batch_size=MAX_BATCH_SIZE
         )
         
@@ -403,34 +403,25 @@ def create_agent_graph():
     def generate_narrative(state: AgentState) -> AgentState:
         """Generate natural language narrative."""
         query = state["query"]
-        context_parts = []
         
+        # Build simple context
         if state.get("sql_result"):
-            context_parts.append(f"SQL Results: {state['sql_result'][:500]}")
+            try:
+                data = json.loads(state["sql_result"])
+                if data and len(data) > 0:
+                    # Summarize the data
+                    first_row = data[0]
+                    keys = list(first_row.keys())
+                    summary = f"Found {len(data)} results. Top result: {keys[0]}={first_row[keys[0]]}"
+                    if len(keys) > 1:
+                        summary += f", {keys[1]}={first_row[keys[1]]}"
+                    state["narrative"] = f"Based on the {query.lower()}, {summary}. See the visualization for details."
+                    return state
+            except:
+                pass
         
-        if state.get("retrieved_docs"):
-            context_parts.append(f"Context: {' '.join(state['retrieved_docs'][:3])}")
-        
-        context = "\n".join(context_parts) if context_parts else "No specific data available."
-        
-        prompt = f"""Question: {query}
-
-{context}
-
-Provide a brief, helpful answer based on the data above:"""
-        
-        try:
-            response = models.generate(prompt)
-            # Extract just the answer part
-            if "Answer:" in response:
-                narrative = response.split("Answer:")[-1].strip()
-            else:
-                narrative = response.split(prompt)[-1].strip() if prompt in response else response
-            state["narrative"] = narrative[:500]  # Limit length
-        except Exception as e:
-            state["narrative"] = f"Analysis based on query: {query}"
-            state["error"] = str(e)
-        
+        # Fallback: simple template-based response
+        state["narrative"] = f"Query processed: {query}. Results shown in the visualization above."
         return state
     
     def check_bias(state: AgentState) -> AgentState:
