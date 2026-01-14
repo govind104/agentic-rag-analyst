@@ -484,18 +484,32 @@ def create_agent_graph():
                         else:
                             val_str = str(val_val)
                         
-                        # Select template based on column names
+                        # Metadata mapping for richer descriptors
+                        column_meta = {
+                            "location": "NYC taxi zone",
+                            "region": "Geographic region",
+                            "tenure": "Months as customer",
+                            "passengers": "Passenger count",
+                            "fare": "Trip fare (USD)",
+                            "revenue": "Customer revenue (USD)",
+                            "churn": "Churn probability"
+                        }
+                        
+                        # Get friendly names
+                        group_desc = column_meta.get(group_col.lower(), group_col)
+                        
+                        # Select template based on column names with integrated metadata
                         if "revenue" in val_col.lower():
-                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' generated highest revenue of ${val_str}. This segment leads in financial performance."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_desc} '{group_val}' generated highest revenue of ${val_str}. This segment leads in financial performance."
                         elif "churn" in val_col.lower():
-                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' has the highest churn rate of {val_str}. This segment requires retention focus."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_desc} '{group_val}' has the highest churn rate of {val_str}. This segment requires retention focus."
                         elif "fare" in val_col.lower():
-                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' recorded the highest fare total of ${val_str}. High demand segment identified."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_desc} '{group_val}' recorded the highest fare total of ${val_str}. High demand segment identified."
                         elif "count" in val_col.lower() or "total" in val_col.lower():
-                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' has {val_str} total records."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_desc} '{group_val}' has {val_str} total records."
                         else:
                             # Generic fallback for other metrics
-                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' with {val_col} {val_str}. See chart for full breakdown."
+                            template = f"Analysis: Found {num_results} results. Top result: {group_desc} '{group_val}' with {val_col} {val_str}. See chart for details."
                             
                         narrative = template
                     else:
