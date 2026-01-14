@@ -10,8 +10,6 @@
 
 A full-stack GenAI demo showcasing modern ML/AI engineering practices for Data Science job applications.
 
-![Demo](https://img.shields.io/badge/Demo-Live-success?style=flat-square)
-
 ---
 
 ## ✨ Features
