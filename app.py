@@ -122,6 +122,9 @@ if "metrics_history" not in st.session_state:
 if "session_id" not in st.session_state:
     st.session_state.session_id = f"session_{int(time.time())}"
 
+if "viz_counter" not in st.session_state:
+    st.session_state.viz_counter = 0
+
 # ==============================================================================
 # Sidebar Configuration
 # ==============================================================================
@@ -202,13 +205,15 @@ def call_agent(query: str, k: int, metric: str) -> dict:
         return {"error": str(e)}
 
 
-def render_visualization(viz_code: str):
+def render_visualization(viz_code: str, key_suffix: str = ""):
     """Render Plotly visualization from JSON spec."""
     try:
         spec = json.loads(viz_code)
         if spec and "data" in spec:
             fig = go.Figure(data=spec["data"], layout=spec.get("layout", {}))
-            st.plotly_chart(fig, use_container_width=True)
+            st.session_state.viz_counter += 1
+            unique_key = f"viz_{st.session_state.viz_counter}_{key_suffix}_{hash(viz_code) % 10000}"
+            st.plotly_chart(fig, use_container_width=True, key=unique_key)
     except Exception as e:
         st.warning(f"Could not render visualization: {e}")
 
@@ -252,7 +257,7 @@ if page == "💬 Chat":
             """)
     
     # Display chat messages
-    for message in st.session_state.messages:
+    for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             
@@ -268,7 +273,7 @@ if page == "💬 Chat":
                 # Visualization
                 if data.get("viz_code"):
                     with st.expander("📊 Visualization", expanded=True):
-                        render_visualization(data["viz_code"])
+                        render_visualization(data["viz_code"], f"history_{idx}")
                 
                 # Metrics
                 cols = st.columns(3)
@@ -317,7 +322,7 @@ if page == "💬 Chat":
                 # Show visualization
                 if data.get("viz_code"):
                     with st.expander("📊 Visualization", expanded=True):
-                        render_visualization(data["viz_code"])
+                        render_visualization(data["viz_code"], f"new_{int(time.time())}")
                 
                 # Show metrics
                 cols = st.columns(3)
@@ -394,7 +399,7 @@ elif page == "📊 Dashboard":
                 xaxis_title="Query #",
                 yaxis_title="Latency (ms)"
             )
-            st.plotly_chart(fig_latency, use_container_width=True)
+            st.plotly_chart(fig_latency, use_container_width=True, key="dashboard_latency")
         
         with col2:
             st.markdown("### ⚖️ Bias Score Over Time")
@@ -416,7 +421,7 @@ elif page == "📊 Dashboard":
                 xaxis_title="Query #",
                 yaxis_title="Bias Score"
             )
-            st.plotly_chart(fig_bias, use_container_width=True)
+            st.plotly_chart(fig_bias, use_container_width=True, key="dashboard_bias")
     else:
         st.info("📈 No metrics yet. Start chatting to see live metrics!")
     
