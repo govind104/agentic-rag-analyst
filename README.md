@@ -39,7 +39,7 @@ A full-stack GenAI demo showcasing modern ML/AI engineering practices for Data S
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/AgenticRAG.git
+git clone https://github.com/govind104/agentic-rag-analyst.git
 cd AgenticRAG
 
 # Create virtual environment
