@@ -111,9 +111,10 @@ class ModelManager:
             model=LLM_MODEL_NAME,
             tokenizer=self.llm_tokenizer,
             device=device,
+            max_length=512,
             max_new_tokens=256,
-            do_sample=True,
-            temperature=0.1,
+            truncation=True,
+            do_sample=False,
             batch_size=MAX_BATCH_SIZE
         )
         
@@ -240,19 +241,37 @@ class VizTool:
         if y_col is None:
             y_col = columns[1] if len(columns) > 1 else columns[0]
         
-        # Generate Plotly JSON spec
+        # Get x values and create readable labels
+        x_values = df[x_col].tolist()
+        y_values = df[y_col].tolist() if y_col != x_col else df[x_col].tolist()
+        
+        # Create readable x-axis labels (e.g., "Location 187" instead of just 187)
+        if x_col.lower() in ['location', 'id', 'zone']:
+            x_labels = [f"Location {v}" for v in x_values]
+        elif x_col.lower() == 'region':
+            x_labels = [str(v).title() for v in x_values]
+        else:
+            x_labels = [str(v) for v in x_values]
+        
+        # Generate Plotly JSON spec with improved labels
         plotly_spec = {
             "data": [{
                 "type": chart_type,
-                "x": df[x_col].tolist(),
-                "y": df[y_col].tolist() if y_col != x_col else df[x_col].tolist(),
-                "name": y_col
+                "x": x_labels,
+                "y": y_values,
+                "name": y_col,
+                "text": [f"{v:.2f}" if isinstance(v, float) else str(v) for v in y_values],
+                "textposition": "auto"
             }],
             "layout": {
-                "title": f"{y_col} by {x_col}",
-                "xaxis": {"title": x_col},
-                "yaxis": {"title": y_col},
-                "template": "plotly_dark"
+                "title": f"{y_col.replace('_', ' ').title()} by {x_col.replace('_', ' ').title()}",
+                "xaxis": {
+                    "title": x_col.replace('_', ' ').title(),
+                    "tickangle": -45 if len(x_labels) > 3 else 0
+                },
+                "yaxis": {"title": y_col.replace('_', ' ').title()},
+                "template": "plotly_dark",
+                "showlegend": False
             }
         }
         
