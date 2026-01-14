@@ -392,6 +392,8 @@ def create_agent_graph():
         # Determine what to group by
         if "passenger" in query_lower:
             group_col = "passengers"
+        elif "tenure" in query_lower:
+            group_col = "tenure"
         elif "region" in query_lower:
             group_col = "region"
         elif "location" in query_lower or "zone" in query_lower:
