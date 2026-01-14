@@ -456,11 +456,9 @@ def create_agent_graph():
         return state
     
     def generate_narrative(state: AgentState) -> AgentState:
-        """Generate natural language narrative using deterministic template with LLM polish."""
+        """Generate deterministic narrative from data (no LLM)."""
         query = state["query"]
-        
-        # 1. Build Deterministic Template (Fact-based)
-        template_summary = "No data found."
+        narrative = f"Query processed: {query}. See visualization for details."
         
         if state.get("sql_result"):
             try:
@@ -477,40 +475,15 @@ def create_agent_graph():
                         val_val = first_row[val_col]
                         
                         val_str = f"{val_val:.2f}" if isinstance(val_val, (int, float)) else str(val_val)
-                        template_summary = f"Found {num_results} results. Top result: {group_col} '{group_val}' with {val_col} {val_str}. See the visualization below for full details."
+                        narrative = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' with {val_col} {val_str}. Please refer to the chart above for the complete distribution."
                     else:
-                        template_summary = f"Found {num_results} results. Top result: {first_row}. See visualization."
-            except:
-                pass
-
-        # 2. LLM Polish (Optional)
-        prompt = f"Rewrite this short analytical summary so it sounds like a data analyst, WITHOUT adding new facts or speculation: {template_summary}"
+                        narrative = f"Analysis: Found {num_results} results. Top result: {first_row}. See chart for details."
+                else:
+                    narrative = "Analysis: No data found matching your criteria."
+            except Exception as e:
+                narrative = f"Analysis completed. (Error parsing details: {str(e)})"
         
-        narrative = template_summary # Default to template
-
-        try:
-            raw_response = models.generate(prompt)
-            
-            # 3. Cleanup & Safety Check
-            candidate = raw_response
-            if prompt in candidate:
-                candidate = candidate.replace(prompt, "").strip()
-            
-            candidate_lower = candidate.lower()
-            forbidden = ["i'm not sure", "i don't know", "search engine", "concise", "unable to", "context", "language model", "sorry"]
-            
-            if any(phrase in candidate_lower for phrase in forbidden) or len(candidate) < 5:
-                # Trigger fallback
-                narrative = template_summary
-            else:
-                narrative = candidate
-
-            state["narrative"] = narrative[:500]
-            
-        except Exception as e:
-            state["narrative"] = template_summary
-            state["error"] = str(e)
-            
+        state["narrative"] = narrative
         return state
     
     def check_bias(state: AgentState) -> AgentState:
