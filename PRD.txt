@@ -1,0 +1,129 @@
+# AI Analyst Agent PRD: Production-Ready GenAI Demo for DS/ML/AI Job Applications
+
+## 1. Overview
+**Product Name**: AI Analyst Agent (RAG-Powered Data Copilot)  
+**Version**: 1.0  
+**Target Users**: Job applicants (e.g., MSc Data Science freshers) showcasing GenAI, MLOps, agents for UK/India DS/ML/AI roles.  
+**Goal**: Extend existing Task2.py RAG FastAPI app into a full-stack Streamlit demo with agentic capabilities, MLflow tracking, Docker deployment, ethical AI, and dashboards. Deployable to Streamlit Cloud/AWS. Standout portfolio: End-to-end (SQL → RAG → LLM → Viz → Narrative), production-optimized (queues/batching/MLflow), ethical (bias checks).  
+**Current Base**: Task2.py (FastAPI RAG with OPT-125m, multilingual-e5-large embeddings, queue/batcher, L2/cosine retrieval, metrics). Files: Task1.py (CuPy ops), test.py, MLS_Report.pdf, README.md.  
+**Success Metrics**: 99% uptime, <2s p95 latency, MLflow-tracked evals, bias score <0.05, 5+ GitHub stars potential.  
+**Timeline**: 1 week MVP (Claude implements iteratively).  
+
+## 2. High-Level Architecture
+- **Frontend**: Streamlit chat UI (sidebar config, live metrics dashboard).
+- **Backend**: Enhanced FastAPI (agentic RAG via LangChain/LangGraph).
+- **Data Flow**: User query → SQL agent → RAG retrieve → LLM tool-call → Generate viz/code → LLM narrative → Bias check → Response.
+- **MLOps**: MLflow (tracking/experiments), Docker (container), Prometheus metrics export.
+- **Infra**: Local dev → Streamlit Cloud → Optional AWS EC2 (GPU).
+- **Tech Stack**:
+  | Layer | Tools |
+  |-------|-------|
+  | Frontend | Streamlit 1.38+, Plotly |
+  | Backend | FastAPI 0.115+, LangChain 0.3+, LangGraph, Transformers 4.45+ |
+  | Models | Embed: intfloat/multilingual-e5-large; LLM: meta-llama/Llama-3.2-3B-Instruct (free HF); Viz: Plotly |
+  | Data | SQLite DB (public NYC Taxi + synthetic sales/churn CSV) |
+  | MLOps | MLflow 2.15+, Docker 27+, Prometheus client |
+  | Retrieval | FAISS (via LangChain), CuPy top-K from Task1.py |
+  | Ethical | HuggingFace evaluate (bias metrics) |
+
+## 3. User Stories & Features
+**Must-Have (MVP)**:
+1. Chat interface: Query e.g., "Analyze churn by region" → SQL → Retrieve docs → Agent reasons → SQL viz + narrative.
+2. Config sidebar: Toggle models (embed/LLM), K=5-20, batch size=4-16, distance metric (L2/cosine/dot/manhattan).
+3. Live dashboard: Latency/throughput (p95), queue size, bias score, MLflow link.
+4. Agentic flow: LangGraph state machine (tools: SQLQueryTool, RetrieveTool, VizTool, BiasCheckerTool).
+5. Bias check: Auto-compute demographic bias on outputs (gender/race proxies via NLTK).
+6. MLflow: Log params (batch_size, metric), metrics (latency/bias), artifacts (traces/plots).
+
+**Nice-to-Have**:
+- Voice input (Streamlit-webrtc).
+- Multi-user sessions (Redis queue).
+- AWS deploy script (EC2 t4g.medium).
+
+## 4. Detailed Data & Setup
+**Datasets** (SQLite + CSV, ~10k rows each):
+- NYC Taxi: trips (pickup_datetime, PULocationID, fare_amount, passenger_count). Schema: CREATE TABLE trips (id INT PRIMARY KEY, pickup_date TIMESTAMP, location INT, fare FLOAT, passengers INT).
+- Synthetic Churn: customers (id, region, tenure, churn BOOL, revenue FLOAT).
+- Load via Pandas → SQLite on startup.
+
+**Sample Queries**:
+- "Top 5 fare locations last month?"
+- "Churn rate by region with viz?"
+
+**State Schema** (LangGraph):
+```json
+{
+  "messages": [HumanMessage, AIMessage],
+  "sql_query": str,
+  "retrieved_docs": list[str],
+  "viz_code": str,  // Plotly JSON
+  "narrative": str,
+  "bias_score": float,
+  "session_id": str
+}
+```
+
+## 5. Implementation Steps (Sequential, Iterative Prompts to Claude)
+Follow exactly; test each step locally (`streamlit run app.py`). Use existing Task1.py functions verbatim.
+
+### Step 1: Environment & Docker (1 hour)
+- `requirements.txt`: Add langchain[all], langgraph, faiss-cpu, mlflow, prometheus-client, plotly, sqlite3, nltk, evaluate, weaviate-client (vectorstore), docker.
+- `Dockerfile`: FROM python:3.12-slim. COPY . /app. RUN pip install -r requirements.txt. CMD ["streamlit", "run", "app.py", "--server.port=8501"].
+- `docker-compose.yml`: Services: app (build ., ports 8501:8501), mlflow (mlflow/mlflow, ports 5000:5000).
+- `mlflow_run.sh`: mlflow server --host 0.0.0.0 --port 5000.
+
+### Step 2: Data Layer (30 min)
+- `data.py`: Init SQLite DB with NYC/churn tables (seed 10k rows Pandas random). Expose query func: def run_sql(query: str) -> pd.DataFrame.
+- Download NLTK: brown corpus for bias proxy.
+
+### Step 3: Enhance Backend (FastAPI + LangGraph) (2-3 hours)
+- Extend Task2.py: /agent endpoint (POST JSON: {"query": str, "k": int=10, "metric": str="l2"}).
+- LangGraph Agent:
+  - Nodes: sql_agent (SQLQueryTool), rag_retrieve (FAISS+CuPy top-K), viz_generator (prompt: "Plotly code for {df}"), llm_narrative (Llama-3.2), bias_check (evaluate bias).
+  - Edges: Conditional (if SQL? → sql; else rag → viz → narrative → bias).
+  - Tools: Custom SQLTool (data.py), RetrieveTool (Task1.py distances), VizTool (exec Plotly safe), BiasTool (NLTK word overlap).
+  - Config: max_tokens=512, temp=0.1.
+- Integrate existing queue/batcher: Batch agent traces.
+- Prometheus: Export /metrics (latency, queue_size, bias_avg).
+
+### Step 4: MLflow Integration (1 hour)
+- Client: mlflow.start_run(). log_param({"batch_size": 8, "metric": "l2"}). log_metric({"p95_latency": 1.2, "bias": 0.03}). log_artifact("trace.json").
+- UI link in Streamlit: Auto-open http://localhost:5000.
+
+### Step 5: Streamlit Frontend (2 hours)
+- `app.py`: st.chat_input, st.sidebar (toggles), st.plotly_chart (dynamic).
+- Pages: Chat | Dashboard (metrics table/chart) | MLflow | Docs.
+- Session state: Track convos, bias history.
+- Load balancer: Proxy to FastAPI (httpx).
+
+### Step 6: Ethical AI & Monitoring (30 min)
+- Bias func: Tokenize output, compute skew (female/male words from NLTK).
+- Guardrails: Reject harmful queries (prompt prefix).
+
+### Step 7: Testing & Polish (1 hour)
+- Tests: 10 queries (latency <2s, recall>0.8 vs ground truth).
+- README.md: Screenshots, perf tables (from MLS_Report), deploy guide, skills map (RAG/Agents/MLOps).
+- Deploy: streamlit hello → share.streamlit.io; Docker push.
+
+### Step 8: Validation Checklist
+- [ ] Runs locally: `docker-compose up`.
+- [ ] Agent handles SQL+RAG hybrid.
+- [ ] Dashboard updates live.
+- [ ] MLflow logs 100% traces.
+- [ ] Bias <0.05 on 5 samples.
+- [ ] No errors on edge (empty query, high K).
+
+## 6. Edge Cases & Constraints
+- GPU: Fallback CPU if no CUDA.
+- Memory: Batch size auto-scale (Task1.py estimate_max_batch_size).
+- Errors: Graceful (retry 3x, fallback narrative).
+- Security: Sanitize SQL (params), API keys env vars.
+
+## 7. Output Deliverables
+- GitHub-ready repo: .gitignore (secrets, __pycache__), LICENSE (MIT), badges (Streamlit deploy, MLflow, tests), CI/CD (.github/workflows/test-deploy.yml with pytest + Docker build)
+- Full repo structure.
+- `app.py`, enhanced `task2_agent.py`, `data.py`, Dockerfile, etc.
+- Deploy URL.
+- Video demo script.
+
+Implement step-by-step; confirm each via code_execution/test before next. No deviations.
