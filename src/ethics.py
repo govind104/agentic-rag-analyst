@@ -88,9 +88,14 @@ class GenderBiasDetector:
         total_stereo = male_stereo + female_stereo
         
         # Calculate bias scores
+        # Logic: absolute difference / max(1, total_gendered)
+        # This prevents 1.0 score for single-word occurrences unless extreme
         if total_gendered == 0:
             gender_bias = 0.0
         else:
+            # New Formula: bias is ratio of imbalance
+            # e.g., M=1, F=0 -> diff=1. bias = 1.0 (Still high, but correct for imbalance)
+            # e.g., M=1, F=1 -> diff=0. bias = 0.0
             gender_bias = abs(male_count - female_count) / total_gendered
         
         if total_stereo == 0:
@@ -99,6 +104,10 @@ class GenderBiasDetector:
             stereo_bias = total_stereo / len(words) if len(words) > 0 else 0.0
         
         # Combined bias score (weighted)
+        # Cap gender bias contribution if total word count is very low (to avoid "He" = 1.0 bias triggering red alert)
+        if len(words) < 5 and total_gendered == 1:
+             gender_bias *= 0.5  # Reduce penalty for very short texts with 1 gender term
+             
         bias_score = 0.7 * gender_bias + 0.3 * min(stereo_bias * 10, 1.0)
         bias_score = min(round(bias_score, 4), 1.0)
         
