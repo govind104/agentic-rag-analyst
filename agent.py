@@ -349,28 +349,83 @@ def create_agent_graph():
         return state
     
     def generate_sql(state: AgentState) -> AgentState:
-        """Generate and execute SQL query."""
+        """Generate and execute SQL query based on natural language."""
         if state.get("sql_query") != "PENDING":
             return state
         
         query = state["query"]
-        
-        # Simple query mapping (in production, use LLM for SQL generation)
         query_lower = query.lower()
         
-        if "top" in query_lower and "fare" in query_lower:
-            sql = "SELECT location, SUM(fare) as total_fare FROM trips GROUP BY location ORDER BY total_fare DESC LIMIT 5"
-        elif "churn" in query_lower and "region" in query_lower:
-            sql = "SELECT region, AVG(churn) * 100 as churn_rate, COUNT(*) as customers FROM customers GROUP BY region ORDER BY churn_rate DESC"
-        elif "average" in query_lower and "fare" in query_lower:
-            sql = "SELECT passengers, AVG(fare) as avg_fare FROM trips GROUP BY passengers ORDER BY passengers"
-        elif "revenue" in query_lower:
-            sql = "SELECT region, AVG(revenue) as avg_revenue FROM customers GROUP BY region ORDER BY avg_revenue DESC"
-        elif "trips" in query_lower and ("month" in query_lower or "time" in query_lower):
-            sql = "SELECT strftime('%Y-%m', pickup_date) as month, COUNT(*) as trip_count FROM trips GROUP BY month ORDER BY month"
+        # Determine table and columns
+        if any(kw in query_lower for kw in ["churn", "customer", "region", "tenure", "revenue"]):
+            table = "customers"
+            default_group = "region"
+            default_agg = "revenue"
         else:
-            # Default query
-            sql = "SELECT * FROM trips LIMIT 10"
+            table = "trips"
+            default_group = "location"
+            default_agg = "fare"
+        
+        # Determine aggregation function
+        if "average" in query_lower or "avg" in query_lower:
+            agg_func = "AVG"
+        elif "count" in query_lower or "number" in query_lower:
+            agg_func = "COUNT"
+        elif "total" in query_lower or "sum" in query_lower:
+            agg_func = "SUM"
+        else:
+            agg_func = "SUM"  # Default for "top by fare" type queries
+        
+        # Determine order direction
+        if "bottom" in query_lower or "lowest" in query_lower or "least" in query_lower or "worst" in query_lower:
+            order = "ASC"
+        else:
+            order = "DESC"  # Default to top/highest
+        
+        # Determine limit
+        limit = 5  # Default
+        for word in query_lower.split():
+            if word.isdigit():
+                limit = int(word)
+                break
+        
+        # Determine what to group by
+        if "passenger" in query_lower:
+            group_col = "passengers"
+        elif "region" in query_lower:
+            group_col = "region"
+        elif "location" in query_lower or "zone" in query_lower:
+            group_col = "location"
+        elif "month" in query_lower or "time" in query_lower or "date" in query_lower:
+            if table == "trips":
+                group_col = "strftime('%Y-%m', pickup_date)"
+            else:
+                group_col = default_group
+        else:
+            group_col = default_group
+        
+        # Determine what to aggregate
+        if "fare" in query_lower:
+            agg_col = "fare"
+        elif "revenue" in query_lower:
+            agg_col = "revenue"
+        elif "churn" in query_lower:
+            agg_col = "churn"
+            agg_func = "AVG"  # Churn rate is always average
+        elif "trip" in query_lower or "count" in query_lower:
+            agg_col = "*"
+            agg_func = "COUNT"
+        else:
+            agg_col = default_agg
+        
+        # Build the SQL query
+        if "churn" in query_lower and "rate" in query_lower:
+            sql = f"SELECT {group_col}, AVG(churn) * 100 as churn_rate, COUNT(*) as total FROM {table} GROUP BY {group_col} ORDER BY churn_rate {order} LIMIT {limit}"
+        elif agg_col == "*":
+            sql = f"SELECT {group_col}, COUNT(*) as count FROM {table} GROUP BY {group_col} ORDER BY count {order} LIMIT {limit}"
+        else:
+            agg_name = f"{agg_func.lower()}_{agg_col}"
+            sql = f"SELECT {group_col}, {agg_func}({agg_col}) as {agg_name} FROM {table} GROUP BY {group_col} ORDER BY {agg_name} {order} LIMIT {limit}"
         
         result = SQLQueryTool.run(sql)
         state["sql_query"] = sql
