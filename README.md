@@ -3,10 +3,7 @@ title: AI Analyst Agent
 emoji: 📊
 colorFrom: indigo
 colorTo: purple
-sdk: streamlit
-sdk_version: "1.45.0"
-python_version: "3.12"
-app_file: src/app.py
+sdk: docker
 pinned: false
 ---
 

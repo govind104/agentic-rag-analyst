@@ -17,103 +17,10 @@ import atexit
 import requests
 
 # ==============================================================================
-# Backend Process Management (For HuggingFace Spaces / Single Entry Point)
+# Configuration
 # ==============================================================================
-# These processes are spawned once and reused across Streamlit reruns
-
-BACKEND_URL = "http://localhost:8000"
-MAX_WAIT_SECONDS = 300  # Wait up to 5 minutes for model loading on free tier
-
-def wait_for_backend(max_wait=MAX_WAIT_SECONDS):
-    """Poll the backend health endpoint until it responds."""
-    print(f"Waiting for backend to be ready (max {max_wait}s)...")
-    for i in range(max_wait):
-        try:
-            resp = requests.get(f"{BACKEND_URL}/health", timeout=2)
-            if resp.status_code == 200:
-                print(f"Backend ready after {i+1} seconds")
-                return True
-        except:
-            pass
-        time.sleep(1)
-        if i % 10 == 0 and i > 0:
-            print(f"Still waiting... ({i}s elapsed)")
-    print("Backend failed to start within timeout")
-    return False
-
-def start_backend_services():
-    """Start FastAPI backend and MLflow server as background processes."""
-    
-    # Check if we're the main process (not a rerun)
-    if "backend_started" not in st.session_state:
-        st.session_state.backend_started = False
-    
-    if st.session_state.backend_started:
-        return  # Already running
-    
-    # Get the directory containing this script
-    src_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(src_dir)
-    
-    # Start MLflow server (port 5000) - optional, non-blocking
-    try:
-        mlflow_proc = subprocess.Popen(
-            [sys.executable, "-m", "mlflow", "server", "--host", "0.0.0.0", "--port", "5000"],
-            cwd=project_root,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        st.session_state.mlflow_proc = mlflow_proc
-        print("MLflow server started on port 5000")
-    except Exception as e:
-        print(f"Warning: Could not start MLflow server: {e}")
-    
-    # Start FastAPI backend (port 8000) - CRITICAL
-    try:
-        agent_path = os.path.join(src_dir, "agent.py")
-        backend_proc = subprocess.Popen(
-            [sys.executable, agent_path],
-            cwd=project_root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
-        st.session_state.backend_proc = backend_proc
-        print("FastAPI backend starting on port 8000...")
-    except Exception as e:
-        print(f"CRITICAL: Could not start FastAPI backend: {e}")
-        return
-    
-    # Wait for backend to be ready with health check
-    if wait_for_backend():
-        st.session_state.backend_started = True
-    else:
-        # Show whatever output we have from the backend
-        proc = st.session_state.backend_proc
-        if proc.poll() is not None:
-            # Process crashed
-            stdout, _ = proc.communicate()
-            print(f"Backend crashed with output:\n{stdout[:3000]}")
-        else:
-            # Process is still running but not responding - likely stuck during model loading
-            print("Backend is running but not responding to health checks.")
-            print("This usually means model loading is taking too long for HuggingFace free tier.")
-            print("Consider using smaller models or a paid tier with more resources.")
-
-# Cleanup on exit
-def cleanup_processes():
-    """Terminate background processes on app shutdown."""
-    for proc_name in ["backend_proc", "mlflow_proc"]:
-        if hasattr(st.session_state, proc_name):
-            proc = getattr(st.session_state, proc_name)
-            if proc and proc.poll() is None:
-                proc.terminate()
-                print(f"Terminated {proc_name}")
-
-atexit.register(cleanup_processes)
-
-# Start backend services
-start_backend_services()
+# Backend URL - in Docker, the backend runs as a separate process managed by start.sh
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 # ==============================================================================
 # Page Configuration
