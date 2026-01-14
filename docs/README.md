@@ -55,10 +55,10 @@ python -c "import nltk; nltk.download('brown'); nltk.download('punkt')"
 
 ```bash
 # Terminal 1: Start FastAPI backend
-python agent.py
+python src/agent.py
 
 # Terminal 2: Start Streamlit frontend
-streamlit run app.py
+streamlit run src/app.py
 
 # Terminal 3 (optional): Start MLflow
 ./mlflow_run.sh  # or: mlflow server --host 0.0.0.0 --port 5000
@@ -78,10 +78,11 @@ streamlit run app.py
 
 ```bash
 # Build and run all services
-docker-compose up --build
+# Run from repository root
+docker-compose -f docker/docker-compose.yml up --build
 
 # Or run individually
-docker build -t ai-analyst-agent .
+docker build -t ai-analyst-agent -f docker/Dockerfile .
 docker run -p 8501:8501 -p 8001:8001 ai-analyst-agent
 ```
 
@@ -91,18 +92,23 @@ docker run -p 8501:8501 -p 8001:8001 ai-analyst-agent
 
 ```
 AgenticRAG/
-├── app.py              # Streamlit frontend (chat, dashboard, docs)
-├── agent.py            # FastAPI + LangGraph agent (729 lines)
-├── data.py             # SQLite data layer (20k rows)
-├── ethics.py           # Bias detection & guardrails
-├── tests.py            # Integration tests (8 suites)
-├── requirements.txt    # Python dependencies (CPU-only)
-├── Dockerfile          # Container definition
-├── docker-compose.yml  # Multi-service orchestration
-├── mlflow_run.sh       # MLflow server script
+├── src/
+│   ├── retrieval/      # RAG tasks (Task1.py, Task2.py)
+│   ├── agent.py        # FastAPI + LangGraph agent
+│   ├── app.py          # Streamlit frontend
+│   ├── data.py         # SQLite data layer
+│   └── ethics.py       # Bias detection & guardrails
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── tests/
+│   └── test.py         # Integration tests
+├── docs/
+│   └── README.md       # Documentation
 ├── .streamlit/         # Streamlit Cloud config
 │   └── config.toml
-└── README.md           # This file
+├── requirements.txt    # Python dependencies
+└── mlflow_run.sh       # MLflow server script
 ```
 
 ---
