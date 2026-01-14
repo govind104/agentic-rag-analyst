@@ -165,9 +165,9 @@ with st.sidebar:
     
     col1, col2 = st.columns(2)
     with col1:
-        st.link_button("📊 MLflow", MLFLOW_URL, use_container_width=True)
+        st.link_button("📊 MLflow", MLFLOW_URL, width="stretch")
     with col2:
-        st.link_button("📖 API Docs", f"{API_BASE_URL}/docs", use_container_width=True)
+        st.link_button("📖 API Docs", f"{API_BASE_URL}/docs", width="stretch")
     
     st.markdown("---")
     
@@ -176,7 +176,7 @@ with st.sidebar:
     st.caption(f"Session ID: `{st.session_state.session_id}`")
     st.caption(f"Messages: {len(st.session_state.messages)}")
     
-    if st.button("🗑️ Clear Chat", use_container_width=True):
+    if st.button("🗑️ Clear Chat", width="stretch"):
         st.session_state.messages = []
         st.session_state.session_id = f"session_{int(time.time())}"
         st.rerun()
@@ -213,7 +213,7 @@ def render_visualization(viz_code: str, key_suffix: str = ""):
             fig = go.Figure(data=spec["data"], layout=spec.get("layout", {}))
             st.session_state.viz_counter += 1
             unique_key = f"viz_{st.session_state.viz_counter}_{key_suffix}_{hash(viz_code) % 10000}"
-            st.plotly_chart(fig, use_container_width=True, key=unique_key)
+            st.plotly_chart(fig, width="stretch", key=unique_key)
     except Exception as e:
         st.warning(f"Could not render visualization: {e}")
 
@@ -399,7 +399,7 @@ elif page == "📊 Dashboard":
                 xaxis_title="Query #",
                 yaxis_title="Latency (ms)"
             )
-            st.plotly_chart(fig_latency, use_container_width=True, key="dashboard_latency")
+            st.plotly_chart(fig_latency, width="stretch", key="dashboard_latency")
         
         with col2:
             st.markdown("### ⚖️ Bias Score Over Time")
@@ -421,7 +421,7 @@ elif page == "📊 Dashboard":
                 xaxis_title="Query #",
                 yaxis_title="Bias Score"
             )
-            st.plotly_chart(fig_bias, use_container_width=True, key="dashboard_bias")
+            st.plotly_chart(fig_bias, width="stretch", key="dashboard_bias")
     else:
         st.info("📈 No metrics yet. Start chatting to see live metrics!")
     
@@ -436,7 +436,7 @@ elif page == "📊 Dashboard":
                     "Type": "User"
                 })
         if queries_data:
-            st.dataframe(pd.DataFrame(queries_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(queries_data), width="stretch")
     else:
         st.info("No queries yet.")
 
