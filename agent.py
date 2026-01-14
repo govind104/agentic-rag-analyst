@@ -54,7 +54,7 @@ from data import run_sql, get_table_info, init_database
 MAX_BATCH_SIZE = 8
 MAX_WAITING_TIME = 0.1
 EMBED_MODEL_NAME = "intfloat/multilingual-e5-large-instruct"
-LLM_MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"  # High-quality instruction tuned model
+LLM_MODEL_NAME = "microsoft/DialoGPT-medium"  # Open fallback (ungated)
 
 # ==============================================================================
 # Prometheus Metrics
