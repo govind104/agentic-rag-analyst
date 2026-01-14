@@ -3,7 +3,14 @@ AI Analyst Agent - Enhanced Backend
 FastAPI + LangGraph agent with tools for SQL, RAG retrieval, visualization, and bias checking.
 """
 
+# Suppress known warnings before any imports
+import warnings
 import os
+warnings.filterwarnings("ignore", message=".*Pydantic V1.*")
+warnings.filterwarnings("ignore", message=".*generation flags are not valid.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain_core")
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+
 import json
 import time
 import queue
@@ -152,7 +159,7 @@ class ModelManager:
     
     def generate(self, prompt: str) -> str:
         """Generate text using the LLM."""
-        result = self.llm_pipeline(prompt, max_new_tokens=256, truncation=True)
+        result = self.llm_pipeline(prompt)
         return result[0]["generated_text"]
 
 
