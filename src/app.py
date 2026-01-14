@@ -22,7 +22,7 @@ import requests
 # These processes are spawned once and reused across Streamlit reruns
 
 BACKEND_URL = "http://localhost:8000"
-MAX_WAIT_SECONDS = 120  # Wait up to 2 minutes for model loading
+MAX_WAIT_SECONDS = 300  # Wait up to 5 minutes for model loading on free tier
 
 def wait_for_backend(max_wait=MAX_WAIT_SECONDS):
     """Poll the backend health endpoint until it responds."""
