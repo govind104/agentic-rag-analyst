@@ -54,7 +54,7 @@ from data import run_sql, get_table_info, init_database
 MAX_BATCH_SIZE = 8
 MAX_WAITING_TIME = 0.1
 EMBED_MODEL_NAME = "intfloat/multilingual-e5-large-instruct"
-LLM_MODEL_NAME = "facebook/opt-125m"  # Lightweight for CPU
+LLM_MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"  # High-quality instruction tuned model
 
 # ==============================================================================
 # Prometheus Metrics
@@ -118,11 +118,11 @@ class ModelManager:
             model=LLM_MODEL_NAME,
             tokenizer=self.llm_tokenizer,
             device=device,
-            max_length=200,
+            max_length=150,
             max_new_tokens=80,
             truncation=True,
             do_sample=False,
-            repetition_penalty=2.0,
+            repetition_penalty=1.2,
             batch_size=MAX_BATCH_SIZE
         )
         
@@ -456,27 +456,37 @@ def create_agent_graph():
         return state
     
     def generate_narrative(state: AgentState) -> AgentState:
-        """Generate natural language narrative."""
+        """Generate natural language narrative using LLM."""
         query = state["query"]
         
-        # Build simple context
+        # Build context from SQL findings
+        df_summary = "No data found."
         if state.get("sql_result"):
             try:
                 data = json.loads(state["sql_result"])
                 if data and len(data) > 0:
-                    # Summarize the data
                     first_row = data[0]
                     keys = list(first_row.keys())
-                    summary = f"Found {len(data)} results. Top result: {keys[0]}={first_row[keys[0]]}"
+                    df_summary = f"Found {len(data)} results. Top result: {keys[0]}={first_row[keys[0]]}"
                     if len(keys) > 1:
-                        summary += f", {keys[1]}={first_row[keys[1]]}"
-                    state["narrative"] = f"Based on the {query.lower()}, {summary}. See the visualization for details."
-                    return state
+                        df_summary += f", {keys[1]}={first_row[keys[1]]}"
             except:
                 pass
         
-        # Fallback: simple template-based response
-        state["narrative"] = f"Query processed: {query}. Results shown in the visualization above."
+        # Constrained prompt
+        prompt = f"Concise <100 words analysis: {df_summary}. 1 key stat + 1 insight. No repetition."
+        
+        try:
+            # Generate narrative
+            narrative = models.generate(prompt)
+            # Cleanup output if needed
+            if prompt in narrative:
+                narrative = narrative.replace(prompt, "").strip()
+            state["narrative"] = narrative[:500]
+        except Exception as e:
+            state["narrative"] = f"Analysis: {df_summary}"
+            state["error"] = str(e)
+            
         return state
     
     def check_bias(state: AgentState) -> AgentState:
