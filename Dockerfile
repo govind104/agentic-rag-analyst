@@ -6,6 +6,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for layer caching
@@ -31,27 +32,40 @@ RUN python -c "import sys; sys.path.insert(0, 'src'); from data import init_data
 # Expose ports
 EXPOSE 7860 8000 5000
 
-# Create startup script
-RUN echo '#!/bin/bash\n\
-# Start MLflow server in background\n\
-python -m mlflow server --host 0.0.0.0 --port 5000 &\n\
-\n\
-# Start FastAPI backend in background\n\
-python src/agent.py &\n\
-\n\
-# Wait for backend to be ready\n\
-echo "Waiting for backend..."\n\
-for i in {1..60}; do\n\
-    if curl -s http://localhost:8000/health > /dev/null 2>&1; then\n\
-        echo "Backend ready!"\n\
-        break\n\
-    fi\n\
-    sleep 2\n\
-done\n\
-\n\
-# Start Streamlit (foreground)\n\
-exec streamlit run src/app.py --server.port 7860 --server.address 0.0.0.0\n\
-' > /app/start.sh && chmod +x /app/start.sh
+# Create Python startup script (more portable than bash)
+RUN echo 'import subprocess\n\
+    import time\n\
+    import sys\n\
+    import requests\n\
+    \n\
+    print("Starting AI Analyst Agent...")\n\
+    \n\
+    # Start MLflow server\n\
+    mlflow_proc = subprocess.Popen([sys.executable, "-m", "mlflow", "server", "--host", "0.0.0.0", "--port", "5000"])\n\
+    print("MLflow server starting...")\n\
+    \n\
+    # Start FastAPI backend\n\
+    backend_proc = subprocess.Popen([sys.executable, "src/agent.py"])\n\
+    print("FastAPI backend starting...")\n\
+    \n\
+    # Wait for backend to be ready\n\
+    print("Waiting for backend...")\n\
+    for i in range(120):\n\
+    try:\n\
+    resp = requests.get("http://localhost:8000/health", timeout=2)\n\
+    if resp.status_code == 200:\n\
+    print(f"Backend ready after {i+1} seconds!")\n\
+    break\n\
+    except:\n\
+    pass\n\
+    time.sleep(1)\n\
+    if i % 10 == 0 and i > 0:\n\
+    print(f"Still waiting... ({i}s)")\n\
+    \n\
+    # Start Streamlit (this blocks)\n\
+    print("Starting Streamlit on port 7860...")\n\
+    subprocess.run([sys.executable, "-m", "streamlit", "run", "src/app.py", "--server.port", "7860", "--server.address", "0.0.0.0", "--server.headless", "true"])\n\
+    ' > /app/start.py
 
 # Run the startup script
-CMD ["/app/start.sh"]
+CMD ["python", "/app/start.py"]
