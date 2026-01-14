@@ -588,6 +588,7 @@ class AgentResponse(BaseModel):
     narrative: str
     viz_code: Optional[str]
     bias_score: float
+    retrieved_docs: list[str] = []
     latency_ms: float
     session_id: str
 
@@ -726,12 +727,13 @@ async def agent_endpoint(request: AgentRequest):
         
         return AgentResponse(
             query=request.query,
-            sql_query=final_state.get("sql_query"),
-            sql_result=sql_result,
-            narrative=final_state.get("narrative", "Unable to generate response."),
+            sql_query=final_state.get("sql_query") if final_state.get("sql_query") != "PENDING" else None,
+            sql_result=final_state.get("sql_result"),
+            narrative=final_state.get("narrative", "Analysis complete."),
             viz_code=final_state.get("viz_code"),
             bias_score=final_state.get("bias_score", 0.0),
-            latency_ms=round(latency, 2),
+            retrieved_docs=final_state.get("retrieved_docs", []),
+            latency_ms=latency * 1000,
             session_id=final_state["session_id"]
         )
         

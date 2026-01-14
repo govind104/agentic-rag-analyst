@@ -270,6 +270,13 @@ if page == "💬 Chat":
                 if data.get("sql_query"):
                     with st.expander("🔍 SQL Query"):
                         st.code(data["sql_query"], language="sql")
+
+                # Retrieved Context
+                if data.get("retrieved_docs"):
+                    with st.expander(f"📚 Retrieved Context ({len(data['retrieved_docs'])} docs)"):
+                        for i, doc in enumerate(data["retrieved_docs"], 1):
+                            st.markdown(f"**{i}.** {doc}")
+                            st.divider()
                 
                 # Visualization
                 if data.get("viz_code"):
@@ -310,6 +317,7 @@ if page == "💬 Chat":
                     "sql_query": response.get("sql_query"),
                     "sql_result": response.get("sql_result"),
                     "viz_code": response.get("viz_code"),
+                    "retrieved_docs": response.get("retrieved_docs", []),
                     "latency_ms": response.get("latency_ms", 0),
                     "bias_score": response.get("bias_score", 0),
                     "session_id": response.get("session_id", "")
@@ -319,6 +327,13 @@ if page == "💬 Chat":
                 if data.get("sql_query"):
                     with st.expander("🔍 SQL Query"):
                         st.code(data["sql_query"], language="sql")
+                
+                # Show Retrieved Context
+                if data.get("retrieved_docs"):
+                    with st.expander(f"📚 Retrieved Context ({len(data['retrieved_docs'])} docs)"):
+                        for i, doc in enumerate(data["retrieved_docs"], 1):
+                            st.markdown(f"**{i}.** {doc}")
+                            st.divider()
                 
                 # Show visualization
                 if data.get("viz_code"):
