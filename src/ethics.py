@@ -35,6 +35,7 @@ class GenderBiasDetector:
         "gentleman", "gentlemen", "sir", "mr", "king", "prince", "businessman"
     }
     
+    # Re-defined to ensure valid encoding
     FEMALE_WORDS = {
         "she", "her", "hers", "herself", "woman", "women", "female", "girl", "girls",
         "mother", "daughter", "sister", "wife", "aunt", "niece", "grandmother",
@@ -70,14 +71,8 @@ class GenderBiasDetector:
                 "recommendations": []
             }
         
-        # Tokenize and lowercase
-        try:
-            words = set(word_tokenize(text.lower()))
-        except Exception:
-            # Fallback: remove punctuation and split
-            import string
-            clean_text = text.lower().translate(str.maketrans("", "", string.punctuation))
-            words = set(clean_text.split())
+        # Tokenize and lowercase (Use Regex for maximum robustness)
+        words = set(re.findall(r'\b\w+\b', text.lower()))
         
         # Count gendered words
         male_count = len(words & cls.MALE_WORDS)
@@ -107,9 +102,9 @@ class GenderBiasDetector:
             stereo_bias = total_stereo / len(words) if len(words) > 0 else 0.0
         
         # Combined bias score (weighted)
-        # Cap gender bias contribution if total word count is very low (to avoid "He" = 1.0 bias triggering red alert)
-        if len(words) < 5 and total_gendered == 1:
-             gender_bias *= 0.5  # Reduce penalty for very short texts with 1 gender term
+        # Cap gender bias contribution if total word count is low (handles boilerplate + short input)
+        if len(words) < 20 and total_gendered == 1:
+             gender_bias *= 0.5  # Reduce penalty for short texts with 1 gender term
              
         bias_score = 0.7 * gender_bias + 0.3 * min(stereo_bias * 10, 1.0)
         bias_score = min(round(bias_score, 4), 1.0)
