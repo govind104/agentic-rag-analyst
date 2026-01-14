@@ -74,7 +74,10 @@ class GenderBiasDetector:
         try:
             words = set(word_tokenize(text.lower()))
         except Exception:
-            words = set(text.lower().split())
+            # Fallback: remove punctuation and split
+            import string
+            clean_text = text.lower().translate(str.maketrans("", "", string.punctuation))
+            words = set(clean_text.split())
         
         # Count gendered words
         male_count = len(words & cls.MALE_WORDS)
