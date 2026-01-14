@@ -469,13 +469,33 @@ def create_agent_graph():
                     keys = list(first_row.keys())
                     
                     if len(keys) >= 2:
-                        group_col = keys[0]
-                        val_col = keys[1]
+                        # Identify grouping and value columns dynamically
+                        group_col = keys[0]  # Usually first col is grouping (e.g., location, region)
+                        val_col = keys[1]    # Usually second is metric (e.g., total_fare, avg_revenue)
+                        
                         group_val = first_row[group_col]
                         val_val = first_row[val_col]
                         
-                        val_str = f"{val_val:.2f}" if isinstance(val_val, (int, float)) else str(val_val)
-                        narrative = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' with {val_col} {val_str}. Please refer to the chart above for the complete distribution."
+                        # Format value
+                        if isinstance(val_val, (int, float)):
+                            val_str = f"{val_val:.2f}"
+                        else:
+                            val_str = str(val_val)
+                        
+                        # Select template based on column names
+                        if "revenue" in val_col.lower():
+                            template = f"Analysis: Found {num_results} results. Top result: region '{group_val}' generated highest revenue of ${val_str}. This segment leads in financial performance."
+                        elif "churn" in val_col.lower():
+                            template = f"Analysis: Found {num_results} results. Top result: region '{group_val}' has the highest churn rate of {val_str}%. This area requires retention focus."
+                        elif "fare" in val_col.lower():
+                            template = f"Analysis: Found {num_results} results. Top result: location '{group_val}' recorded the highest fare total of ${val_str}. High demand zone identified."
+                        elif "count" in val_col.lower() or "total" in val_col.lower():
+                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' has {val_str} total records."
+                        else:
+                            # Generic fallback for other metrics
+                            template = f"Analysis: Found {num_results} results. Top result: {group_col} '{group_val}' with {val_col} {val_str}. See chart for full breakdown."
+                            
+                        narrative = template
                     else:
                         narrative = f"Analysis: Found {num_results} results. Top result: {first_row}. See chart for details."
                 else:
