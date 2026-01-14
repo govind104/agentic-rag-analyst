@@ -88,10 +88,17 @@ def start_backend_services():
     if wait_for_backend():
         st.session_state.backend_started = True
     else:
-        # Try to get error output from the process
-        if st.session_state.backend_proc.poll() is not None:
-            stdout, _ = st.session_state.backend_proc.communicate()
-            print(f"Backend crashed with output:\n{stdout[:2000]}")
+        # Show whatever output we have from the backend
+        proc = st.session_state.backend_proc
+        if proc.poll() is not None:
+            # Process crashed
+            stdout, _ = proc.communicate()
+            print(f"Backend crashed with output:\n{stdout[:3000]}")
+        else:
+            # Process is still running but not responding - likely stuck during model loading
+            print("Backend is running but not responding to health checks.")
+            print("This usually means model loading is taking too long for HuggingFace free tier.")
+            print("Consider using smaller models or a paid tier with more resources.")
 
 # Cleanup on exit
 def cleanup_processes():
