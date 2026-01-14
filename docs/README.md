@@ -5,7 +5,6 @@
 [![MLflow](https://img.shields.io/badge/MLflow-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![PRD Compliance](https://img.shields.io/badge/PRD_Compliance-98%25-brightgreen?style=for-the-badge)](PRD.txt)
 
 > **Production-Ready RAG-Powered Data Copilot** with agentic capabilities, MLflow tracking, and ethical AI monitoring.
 
@@ -189,42 +188,6 @@ curl -X POST http://localhost:8001/agent \
 | Data Scale | 10k rows | ✅ 20k rows |
 | Test Coverage | 100% | ✅ 8/8 suites |
 | PRD Compliance | 100% | ✅ 98% |
-
----
-
-## 🎥 Video Demo Guide
-
-1. **Start Services** (0:00-0:30)
-   - Run `python agent.py` and `streamlit run app.py`
-   
-2. **Chat Interface** (0:30-1:30)
-   - Query: "Top 5 locations by fare"
-   - Show SQL, visualization, metrics
-   
-3. **Dashboard** (1:30-2:00)
-   - Navigate to Dashboard page
-   - Show latency and bias charts
-   
-4. **Multiple Queries** (2:00-3:00)
-   - "Churn rate by region"
-   - "Average revenue by region"
-   - "Trips by month"
-
----
-
-## 📝 License
-
-MIT License - See [LICENSE](LICENSE) file
-
----
-
-## 👤 Author
-
-**Govind Arun Nampoothiri**  
-MSc Data Science, University of Edinburgh  
-📧 G.Arun-Nampoothiri@sms.ed.ac.uk
-
----
 
 ## 🙏 Acknowledgments
 

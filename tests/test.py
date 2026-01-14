@@ -4,10 +4,12 @@ Run 10 test queries to validate the system.
 """
 
 import sys
+import os
 import time
 import json
 
-# Test without full server startup - just import and test components
+# Add src directory to path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 def test_data_layer():
     """Test data.py functionality."""
     print("\n=== Test 1: Data Layer ===")

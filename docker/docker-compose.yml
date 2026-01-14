@@ -9,23 +9,23 @@ services:
   # Main Application (Streamlit + FastAPI)
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     container_name: ai-analyst-app
     ports:
-      - "8501:8501"  # Streamlit UI
-      - "8001:8001"  # FastAPI Backend
+      - "8501:8501" # Streamlit UI
+      - "8001:8001" # FastAPI Backend
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./data:/app/data          # Persist SQLite DB
-      - ./artifacts:/app/artifacts # Local artifacts
+      - ../data:/app/data # Persist SQLite DB
+      - ../artifacts:/app/artifacts # Local artifacts
     depends_on:
       - mlflow
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8501/_stcore/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -44,11 +44,7 @@ services:
     volumes:
       - mlflow-data:/mlflow
     command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri sqlite:///mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
+      mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
     restart: unless-stopped
     networks:
       - ai-analyst-network

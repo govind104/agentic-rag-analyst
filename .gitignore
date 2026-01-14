@@ -39,3 +39,7 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Docs
+*.pdf
+PRD.txt
