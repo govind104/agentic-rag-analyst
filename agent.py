@@ -1,0 +1,578 @@
+"""
+AI Analyst Agent - Enhanced Backend
+FastAPI + LangGraph agent with tools for SQL, RAG retrieval, visualization, and bias checking.
+"""
+
+import os
+import json
+import time
+import queue
+from threading import Thread
+from contextlib import asynccontextmanager
+from typing import TypedDict, Annotated, Optional, Any
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import torch
+from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+import uvicorn
+
+# LangChain & LangGraph imports
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.tools import tool
+from langchain_huggingface import HuggingFacePipeline
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+
+# Transformers
+from transformers import AutoTokenizer, AutoModel, pipeline
+
+# Prometheus metrics
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from starlette.responses import Response
+
+# Local imports
+from data import run_sql, get_table_info, init_database
+
+# ==============================================================================
+# Configuration
+# ==============================================================================
+MAX_BATCH_SIZE = 8
+MAX_WAITING_TIME = 0.1
+EMBED_MODEL_NAME = "intfloat/multilingual-e5-large-instruct"
+LLM_MODEL_NAME = "facebook/opt-125m"  # Lightweight for CPU
+
+# ==============================================================================
+# Prometheus Metrics
+# ==============================================================================
+REQUEST_COUNT = Counter("agent_requests_total", "Total agent requests")
+REQUEST_LATENCY = Histogram("agent_request_latency_seconds", "Request latency", buckets=[0.1, 0.5, 1, 2, 5, 10])
+QUEUE_SIZE = Gauge("agent_queue_size", "Current queue size")
+BIAS_SCORE = Gauge("agent_bias_score", "Latest bias score")
+BATCH_SIZE = Histogram("agent_batch_size", "Batch sizes processed", buckets=[1, 2, 4, 8, 16])
+
+# ==============================================================================
+# Agent State Schema
+# ==============================================================================
+class AgentState(TypedDict):
+    """LangGraph state for the AI Analyst Agent."""
+    messages: Annotated[list[BaseMessage], add_messages]
+    query: str
+    sql_query: Optional[str]
+    sql_result: Optional[str]
+    retrieved_docs: list[str]
+    viz_code: Optional[str]
+    narrative: Optional[str]
+    bias_score: float
+    session_id: str
+    error: Optional[str]
+
+
+# ==============================================================================
+# Models & Embeddings (Lazy Loading)
+# ==============================================================================
+class ModelManager:
+    """Manages model loading and inference."""
+    
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
+    def initialize(self):
+        if self._initialized:
+            return
+        
+        print("Loading embedding model...")
+        self.embed_tokenizer = AutoTokenizer.from_pretrained(EMBED_MODEL_NAME)
+        self.embed_model = AutoModel.from_pretrained(EMBED_MODEL_NAME)
+        
+        print("Loading LLM...")
+        self.llm_tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME, padding_side="left")
+        self.llm_tokenizer.pad_token = self.llm_tokenizer.eos_token
+        
+        device = 0 if torch.cuda.is_available() else -1
+        self.llm_pipeline = pipeline(
+            "text-generation",
+            model=LLM_MODEL_NAME,
+            tokenizer=self.llm_tokenizer,
+            device=device,
+            max_new_tokens=256,
+            do_sample=True,
+            temperature=0.1,
+            batch_size=MAX_BATCH_SIZE
+        )
+        
+        # Document store for RAG
+        self.documents = self._load_documents()
+        self.doc_embeddings = np.vstack([self.get_embedding(doc) for doc in self.documents])
+        
+        self._initialized = True
+        print("Models loaded successfully!")
+    
+    def _load_documents(self) -> list[str]:
+        """Load documents for RAG retrieval."""
+        # Base documents
+        docs = [
+            "NYC Taxi data contains trip records with pickup dates, locations, fares, and passenger counts.",
+            "Customer churn data tracks customer retention with region, tenure, churn status, and revenue.",
+            "The trips table has columns: id, pickup_date, location, fare, passengers.",
+            "The customers table has columns: id, region, tenure, churn, revenue.",
+            "High tenure customers (>36 months) typically have lower churn rates around 15%.",
+            "The average taxi fare follows an exponential distribution with a minimum of $2.50.",
+            "NYC has 265 taxi zones identified by location IDs.",
+            "Customer churn rate across all regions is approximately 27%.",
+            "To analyze fare by location, use: SELECT location, AVG(fare) FROM trips GROUP BY location",
+            "To analyze churn by region, use: SELECT region, AVG(churn)*100 as churn_rate FROM customers GROUP BY region"
+        ]
+        return docs
+    
+    def get_embedding(self, text: str) -> np.ndarray:
+        """Compute embedding for text."""
+        inputs = self.embed_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+        with torch.no_grad():
+            outputs = self.embed_model(**inputs)
+        return outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+    
+    def generate(self, prompt: str) -> str:
+        """Generate text using the LLM."""
+        result = self.llm_pipeline(prompt, max_new_tokens=256, truncation=True)
+        return result[0]["generated_text"]
+
+
+models = ModelManager()
+
+
+# ==============================================================================
+# Agent Tools (CPU-based using NumPy)
+# ==============================================================================
+def cpu_top_k_retrieval(query_emb: np.ndarray, doc_embs: np.ndarray, k: int = 5, metric: str = "l2") -> list[int]:
+    """CPU-based top-K retrieval using NumPy (from Task1.py cpu_ functions)."""
+    query_emb = np.asarray(query_emb, dtype=np.float32)
+    doc_embs = np.asarray(doc_embs, dtype=np.float32)
+    
+    if query_emb.ndim == 1:
+        query_emb = query_emb[None, :]
+    
+    if metric == "l2":
+        distances = np.sum((query_emb - doc_embs) ** 2, axis=1)
+    elif metric == "cosine":
+        dot = np.sum(query_emb * doc_embs, axis=1)
+        norm_q = np.linalg.norm(query_emb)
+        norm_d = np.linalg.norm(doc_embs, axis=1)
+        distances = 1 - (dot / (norm_q * norm_d + 1e-8))
+    elif metric == "dot":
+        distances = -np.sum(query_emb * doc_embs, axis=1)
+    elif metric == "manhattan":
+        distances = np.sum(np.abs(query_emb - doc_embs), axis=1)
+    else:
+        distances = np.sum((query_emb - doc_embs) ** 2, axis=1)
+    
+    indices = np.argsort(distances)[:k]
+    return indices.tolist()
+
+
+class SQLQueryTool:
+    """Tool for executing SQL queries."""
+    
+    @staticmethod
+    def run(query: str) -> dict:
+        """Execute SQL query and return results."""
+        try:
+            # Basic SQL injection prevention
+            forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE"]
+            query_upper = query.upper()
+            for f in forbidden:
+                if f in query_upper:
+                    return {"error": f"Forbidden SQL operation: {f}", "data": None}
+            
+            df = run_sql(query)
+            return {
+                "data": df.to_dict(orient="records"),
+                "columns": list(df.columns),
+                "row_count": len(df),
+                "error": None
+            }
+        except Exception as e:
+            return {"error": str(e), "data": None}
+
+
+class RetrieveTool:
+    """Tool for RAG document retrieval."""
+    
+    @staticmethod
+    def run(query: str, k: int = 5, metric: str = "l2") -> list[str]:
+        """Retrieve top-K relevant documents."""
+        query_emb = models.get_embedding(query)
+        indices = cpu_top_k_retrieval(query_emb, models.doc_embeddings, k=k, metric=metric)
+        return [models.documents[i] for i in indices]
+
+
+class VizTool:
+    """Tool for generating Plotly visualization code."""
+    
+    @staticmethod
+    def run(data: list[dict], chart_type: str = "bar", x_col: str = None, y_col: str = None) -> dict:
+        """Generate Plotly visualization specification."""
+        if not data:
+            return {"error": "No data provided", "plotly_json": None}
+        
+        df = pd.DataFrame(data)
+        columns = list(df.columns)
+        
+        # Auto-detect columns if not specified
+        if x_col is None:
+            x_col = columns[0]
+        if y_col is None:
+            y_col = columns[1] if len(columns) > 1 else columns[0]
+        
+        # Generate Plotly JSON spec
+        plotly_spec = {
+            "data": [{
+                "type": chart_type,
+                "x": df[x_col].tolist(),
+                "y": df[y_col].tolist() if y_col != x_col else df[x_col].tolist(),
+                "name": y_col
+            }],
+            "layout": {
+                "title": f"{y_col} by {x_col}",
+                "xaxis": {"title": x_col},
+                "yaxis": {"title": y_col},
+                "template": "plotly_dark"
+            }
+        }
+        
+        return {"plotly_json": plotly_spec, "error": None}
+
+
+class BiasTool:
+    """Tool for checking bias in generated text."""
+    
+    # Gender-associated word lists (simplified)
+    MALE_WORDS = {"he", "him", "his", "man", "men", "male", "boy", "father", "son", "brother", "husband"}
+    FEMALE_WORDS = {"she", "her", "hers", "woman", "women", "female", "girl", "mother", "daughter", "sister", "wife"}
+    
+    @staticmethod
+    def run(text: str) -> dict:
+        """Compute demographic bias score for text."""
+        if not text:
+            return {"bias_score": 0.0, "details": "No text provided"}
+        
+        words = set(text.lower().split())
+        
+        male_count = len(words & BiasTool.MALE_WORDS)
+        female_count = len(words & BiasTool.FEMALE_WORDS)
+        total_gendered = male_count + female_count
+        
+        if total_gendered == 0:
+            bias_score = 0.0
+            details = "No gendered language detected"
+        else:
+            # Bias = deviation from 50/50 balance
+            bias_score = abs(male_count - female_count) / total_gendered
+            details = f"Male terms: {male_count}, Female terms: {female_count}"
+        
+        return {"bias_score": round(bias_score, 4), "details": details}
+
+
+# ==============================================================================
+# LangGraph Agent Definition
+# ==============================================================================
+def create_agent_graph():
+    """Create the LangGraph state machine for the AI Analyst Agent."""
+    
+    def classify_query(state: AgentState) -> AgentState:
+        """Classify query and decide routing."""
+        query = state["query"].lower()
+        
+        # Check if query needs SQL
+        sql_keywords = ["top", "average", "sum", "count", "group", "by", "where", "select", 
+                       "fare", "revenue", "churn", "location", "region", "trips", "customers"]
+        needs_sql = any(kw in query for kw in sql_keywords)
+        
+        if needs_sql:
+            state["sql_query"] = "PENDING"
+        else:
+            state["sql_query"] = None
+        
+        return state
+    
+    def generate_sql(state: AgentState) -> AgentState:
+        """Generate and execute SQL query."""
+        if state.get("sql_query") != "PENDING":
+            return state
+        
+        query = state["query"]
+        
+        # Simple query mapping (in production, use LLM for SQL generation)
+        query_lower = query.lower()
+        
+        if "top" in query_lower and "fare" in query_lower:
+            sql = "SELECT location, SUM(fare) as total_fare FROM trips GROUP BY location ORDER BY total_fare DESC LIMIT 5"
+        elif "churn" in query_lower and "region" in query_lower:
+            sql = "SELECT region, AVG(churn) * 100 as churn_rate, COUNT(*) as customers FROM customers GROUP BY region ORDER BY churn_rate DESC"
+        elif "average" in query_lower and "fare" in query_lower:
+            sql = "SELECT passengers, AVG(fare) as avg_fare FROM trips GROUP BY passengers ORDER BY passengers"
+        elif "revenue" in query_lower:
+            sql = "SELECT region, AVG(revenue) as avg_revenue FROM customers GROUP BY region ORDER BY avg_revenue DESC"
+        elif "trips" in query_lower and ("month" in query_lower or "time" in query_lower):
+            sql = "SELECT strftime('%Y-%m', pickup_date) as month, COUNT(*) as trip_count FROM trips GROUP BY month ORDER BY month"
+        else:
+            # Default query
+            sql = "SELECT * FROM trips LIMIT 10"
+        
+        result = SQLQueryTool.run(sql)
+        state["sql_query"] = sql
+        state["sql_result"] = json.dumps(result["data"][:20]) if result["data"] else None
+        
+        if result["error"]:
+            state["error"] = result["error"]
+        
+        return state
+    
+    def retrieve_docs(state: AgentState) -> AgentState:
+        """Retrieve relevant documents for context."""
+        query = state["query"]
+        docs = RetrieveTool.run(query, k=5, metric="l2")
+        state["retrieved_docs"] = docs
+        return state
+    
+    def generate_viz(state: AgentState) -> AgentState:
+        """Generate visualization if we have SQL results."""
+        if state.get("sql_result"):
+            try:
+                data = json.loads(state["sql_result"])
+                if data and len(data) > 0:
+                    viz_result = VizTool.run(data)
+                    state["viz_code"] = json.dumps(viz_result.get("plotly_json"))
+            except:
+                state["viz_code"] = None
+        return state
+    
+    def generate_narrative(state: AgentState) -> AgentState:
+        """Generate natural language narrative."""
+        query = state["query"]
+        context_parts = []
+        
+        if state.get("sql_result"):
+            context_parts.append(f"SQL Results: {state['sql_result'][:500]}")
+        
+        if state.get("retrieved_docs"):
+            context_parts.append(f"Context: {' '.join(state['retrieved_docs'][:3])}")
+        
+        context = "\n".join(context_parts) if context_parts else "No specific data available."
+        
+        prompt = f"""Question: {query}
+
+{context}
+
+Provide a brief, helpful answer based on the data above:"""
+        
+        try:
+            response = models.generate(prompt)
+            # Extract just the answer part
+            if "Answer:" in response:
+                narrative = response.split("Answer:")[-1].strip()
+            else:
+                narrative = response.split(prompt)[-1].strip() if prompt in response else response
+            state["narrative"] = narrative[:500]  # Limit length
+        except Exception as e:
+            state["narrative"] = f"Analysis based on query: {query}"
+            state["error"] = str(e)
+        
+        return state
+    
+    def check_bias(state: AgentState) -> AgentState:
+        """Check for bias in generated narrative."""
+        narrative = state.get("narrative", "")
+        bias_result = BiasTool.run(narrative)
+        state["bias_score"] = bias_result["bias_score"]
+        BIAS_SCORE.set(bias_result["bias_score"])
+        return state
+    
+    def should_generate_sql(state: AgentState) -> str:
+        """Conditional edge: check if SQL is needed."""
+        if state.get("sql_query") == "PENDING":
+            return "generate_sql"
+        return "retrieve_docs"
+    
+    # Build the graph
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    workflow.add_node("classify", classify_query)
+    workflow.add_node("generate_sql", generate_sql)
+    workflow.add_node("retrieve_docs", retrieve_docs)
+    workflow.add_node("generate_viz", generate_viz)
+    workflow.add_node("generate_narrative", generate_narrative)
+    workflow.add_node("check_bias", check_bias)
+    
+    # Add edges
+    workflow.set_entry_point("classify")
+    workflow.add_conditional_edges("classify", should_generate_sql, {
+        "generate_sql": "generate_sql",
+        "retrieve_docs": "retrieve_docs"
+    })
+    workflow.add_edge("generate_sql", "retrieve_docs")
+    workflow.add_edge("retrieve_docs", "generate_viz")
+    workflow.add_edge("generate_viz", "generate_narrative")
+    workflow.add_edge("generate_narrative", "check_bias")
+    workflow.add_edge("check_bias", END)
+    
+    return workflow.compile()
+
+
+# ==============================================================================
+# FastAPI Application
+# ==============================================================================
+class AgentRequest(BaseModel):
+    """Request model for the agent endpoint."""
+    query: str = Field(..., description="User query")
+    k: int = Field(default=10, ge=1, le=50, description="Number of documents to retrieve")
+    metric: str = Field(default="l2", description="Distance metric (l2, cosine, dot, manhattan)")
+    session_id: Optional[str] = Field(default=None, description="Session ID for tracking")
+
+
+class AgentResponse(BaseModel):
+    """Response model for the agent endpoint."""
+    query: str
+    sql_query: Optional[str]
+    sql_result: Optional[Any]
+    narrative: str
+    viz_code: Optional[str]
+    bias_score: float
+    latency_ms: float
+    session_id: str
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
+    print("Initializing AI Analyst Agent...")
+    
+    # Initialize database
+    init_database()
+    
+    # Initialize models
+    models.initialize()
+    
+    # Create agent graph
+    app.state.agent = create_agent_graph()
+    app.state.request_queue = queue.Queue()
+    
+    print("AI Analyst Agent ready!")
+    yield
+    
+    print("Shutting down AI Analyst Agent...")
+
+
+app = FastAPI(
+    title="AI Analyst Agent",
+    description="RAG-Powered Data Copilot with LangGraph",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+
+@app.post("/agent", response_model=AgentResponse)
+async def agent_endpoint(request: AgentRequest):
+    """
+    Main agent endpoint for processing analytical queries.
+    
+    Supports:
+    - SQL queries on NYC Taxi and Customer Churn data
+    - RAG-based document retrieval
+    - Automated visualization generation
+    - Bias checking on outputs
+    """
+    REQUEST_COUNT.inc()
+    start_time = time.time()
+    
+    try:
+        # Initialize state
+        initial_state: AgentState = {
+            "messages": [HumanMessage(content=request.query)],
+            "query": request.query,
+            "sql_query": None,
+            "sql_result": None,
+            "retrieved_docs": [],
+            "viz_code": None,
+            "narrative": None,
+            "bias_score": 0.0,
+            "session_id": request.session_id or f"session_{int(time.time())}",
+            "error": None
+        }
+        
+        # Run agent
+        QUEUE_SIZE.set(app.state.request_queue.qsize())
+        final_state = app.state.agent.invoke(initial_state)
+        
+        latency = (time.time() - start_time) * 1000
+        REQUEST_LATENCY.observe(latency / 1000)
+        
+        # Parse SQL result for response
+        sql_result = None
+        if final_state.get("sql_result"):
+            try:
+                sql_result = json.loads(final_state["sql_result"])
+            except:
+                sql_result = final_state["sql_result"]
+        
+        return AgentResponse(
+            query=request.query,
+            sql_query=final_state.get("sql_query"),
+            sql_result=sql_result,
+            narrative=final_state.get("narrative", "Unable to generate response."),
+            viz_code=final_state.get("viz_code"),
+            bias_score=final_state.get("bias_score", 0.0),
+            latency_ms=round(latency, 2),
+            session_id=final_state["session_id"]
+        )
+        
+    except Exception as e:
+        latency = (time.time() - start_time) * 1000
+        REQUEST_LATENCY.observe(latency / 1000)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/tables")
+async def get_tables():
+    """Get information about available database tables."""
+    return get_table_info()
+
+
+# Keep original /rag endpoint for backward compatibility
+class QueryRequest(BaseModel):
+    query: str
+    k: int = 2
+
+
+@app.post("/rag")
+async def rag_endpoint(payload: QueryRequest):
+    """Legacy RAG endpoint (backward compatible with Task2.py)."""
+    # Use the new agent internally
+    agent_request = AgentRequest(query=payload.query, k=payload.k)
+    response = await agent_endpoint(agent_request)
+    return {"query": payload.query, "result": response.narrative}
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8001)
