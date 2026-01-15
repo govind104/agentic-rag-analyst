@@ -9,8 +9,8 @@ services:
   # Main Application (Streamlit + FastAPI)
   app:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     container_name: ai-analyst-app
     ports:
       - "8501:8501" # Streamlit UI
