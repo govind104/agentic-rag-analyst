@@ -32,40 +32,73 @@ RUN python -c "import sys; sys.path.insert(0, 'src'); from data import init_data
 # Expose ports
 EXPOSE 7860 8000 5000
 
-# Create Python startup script (more portable than bash)
-RUN echo 'import subprocess\n\
-    import time\n\
-    import sys\n\
-    import requests\n\
-    \n\
-    print("Starting AI Analyst Agent...")\n\
-    \n\
-    # Start MLflow server\n\
-    mlflow_proc = subprocess.Popen([sys.executable, "-m", "mlflow", "server", "--host", "0.0.0.0", "--port", "5000"])\n\
-    print("MLflow server starting...")\n\
-    \n\
-    # Start FastAPI backend\n\
-    backend_proc = subprocess.Popen([sys.executable, "src/agent.py"])\n\
-    print("FastAPI backend starting...")\n\
-    \n\
-    # Wait for backend to be ready\n\
-    print("Waiting for backend...")\n\
-    for i in range(120):\n\
-    try:\n\
-    resp = requests.get("http://localhost:8000/health", timeout=2)\n\
-    if resp.status_code == 200:\n\
-    print(f"Backend ready after {i+1} seconds!")\n\
-    break\n\
-    except:\n\
-    pass\n\
-    time.sleep(1)\n\
-    if i % 10 == 0 and i > 0:\n\
-    print(f"Still waiting... ({i}s)")\n\
-    \n\
-    # Start Streamlit (this blocks)\n\
-    print("Starting Streamlit on port 7860...")\n\
-    subprocess.run([sys.executable, "-m", "streamlit", "run", "src/app.py", "--server.port", "7860", "--server.address", "0.0.0.0", "--server.headless", "true"])\n\
-    ' > /app/start.py
+# Create startup script as a separate file
+COPY <<EOF /app/start.py
+import subprocess
+import time
+import sys
+import os
+
+print("=" * 60)
+print("AI ANALYST AGENT - DOCKER CONTAINER STARTING")
+print("=" * 60)
+print(f"Python: {sys.version}")
+print(f"Working directory: {os.getcwd()}")
+print(f"Files in /app: {os.listdir('/app')[:10]}")
+print("=" * 60)
+
+# Start MLflow server
+print("[1/4] Starting MLflow server on port 5000...")
+mlflow_proc = subprocess.Popen(
+    [sys.executable, "-m", "mlflow", "server", "--host", "0.0.0.0", "--port", "5000"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL
+)
+print("      MLflow process started.")
+
+# Start FastAPI backend
+print("[2/4] Starting FastAPI backend on port 8000...")
+backend_proc = subprocess.Popen(
+    [sys.executable, "src/agent.py"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True
+)
+print("      FastAPI process started.")
+
+# Wait for backend health check
+print("[3/4] Waiting for backend health check...")
+import requests
+ready = False
+for i in range(120):
+    try:
+        resp = requests.get("http://localhost:8000/health", timeout=2)
+        if resp.status_code == 200:
+            print(f"      Backend ready after {i+1} seconds!")
+            ready = True
+            break
+    except:
+        pass
+    time.sleep(1)
+    if i % 10 == 0 and i > 0:
+        print(f"      Still waiting... ({i}s)")
+
+if not ready:
+    print("      WARNING: Backend did not become ready in 120s")
+    if backend_proc.poll() is not None:
+        out, _ = backend_proc.communicate()
+        print(f"      Backend output: {out[:2000]}")
+
+# Start Streamlit
+print("[4/4] Starting Streamlit on port 7860...")
+print("=" * 60)
+subprocess.run([
+    sys.executable, "-m", "streamlit", "run", "src/app.py",
+    "--server.port", "7860",
+    "--server.address", "0.0.0.0",
+    "--server.headless", "true"
+])
+EOF
 
 # Run the startup script
 CMD ["python", "/app/start.py"]
